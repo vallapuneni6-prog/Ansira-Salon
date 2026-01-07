@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -34,9 +35,11 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV || 'development'
+    database: !!process.env.DATABASE_URL
   });
 });
+
+app.get('/api/ping', (req, res) => res.send('pong'));
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
@@ -63,20 +66,29 @@ app.get('/api/salons', async (req, res) => {
   }
 });
 
-// Add other essential API stubs here if needed to avoid 404s in frontend
-
 // Serve static assets from Vite's build output folder 'dist'
 const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+} else {
+  console.warn(`Warning: Static directory '${distPath}' not found. Make sure to run 'npm run build'.`);
+}
 
 // Fallback for SPA: Redirect all non-API requests to index.html
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API route not found' });
   }
-  res.sendFile(path.join(distPath, 'index.html'));
+  
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(500).send('Application build missing. Please contact support.');
+  }
 });
 
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Production server listening on http://0.0.0.0:${port}`);
+  console.log(`Server listening on port ${port}`);
 });
