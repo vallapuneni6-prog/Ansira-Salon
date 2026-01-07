@@ -1,0 +1,7 @@
+{
+  "name": "Naturals Manager Pro",
+  "description": "A comprehensive multi-tenant salon management system for staff tracking, real-time invoicing, and AI-powered business insights.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
