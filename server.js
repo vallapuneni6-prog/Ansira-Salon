@@ -13,8 +13,11 @@ const port = process.env.PORT || 3001;
 // Connection Pool Configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // If connecting from outside Dokploy's internal network, 
-  // you might need ssl: { rejectUnauthorized: false }
+  // Managed databases usually require SSL. 
+  // We disable it for localhost but enable for production.
+  ssl: process.env.DATABASE_URL?.includes('localhost') || !process.env.DATABASE_URL 
+    ? false 
+    : { rejectUnauthorized: false }
 });
 
 // Test the connection on startup
@@ -29,13 +32,18 @@ pool.connect((err, client, release) => {
 app.use(cors());
 app.use(express.json());
 
+// --- Health Check ---
+app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
 // --- Auth ---
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
     const result = await pool.query('SELECT * FROM users WHERE username = $1 AND password = $2', [username, password]);
     if (result.rows.length > 0) {
-      res.json(result.rows[0]);
+      const user = result.rows[0];
+      delete user.password; 
+      res.json(user);
     } else {
       res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -166,6 +174,6 @@ app.post('/api/attendance', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Backend listening at http://localhost:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Backend service active at http://0.0.0.0:${port}`);
 });

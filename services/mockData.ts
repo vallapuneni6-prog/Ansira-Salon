@@ -1,10 +1,10 @@
 
 import { Salon, Staff, Invoice, AttendanceRecord, User, UserRole, Service, Voucher, Customer, PackageTemplate, PackageSubscription, PaymentMode, SittingPackageTemplate, SittingPackageSubscription, Expense, ProfitLossRecord, ReferralVoucher } from '../types';
 
-// Exporting ReferralVoucher to fix the error where components expect it from this module
 export type { ReferralVoucher };
 
-// Use environment variable for API_URL if available, otherwise default to local
+// Use environment variable for API_URL if available
+// In Vite, defined variables are often replaced at build time via process.env
 const API_URL = (typeof process !== 'undefined' && process.env.VITE_API_URL) 
   ? process.env.VITE_API_URL 
   : 'http://localhost:3001/api';
@@ -12,7 +12,6 @@ const API_URL = (typeof process !== 'undefined' && process.env.VITE_API_URL)
 class DataService {
   private currentUser: User | null = null;
   private activeSalonId: string | null = null;
-  private isUsingBackend: boolean = true;
 
   constructor() {
     this.init();
@@ -45,7 +44,7 @@ class DataService {
       console.error('Login error:', err);
     }
     
-    // Local fallback for super admin
+    // Fallback for local testing
     if (username === 'super' && password === '123') {
       this.currentUser = { id: 'u_super', name: 'Global CEO', username: 'super', role: UserRole.SUPER_ADMIN };
       localStorage.setItem('luxe_user', JSON.stringify(this.currentUser));
@@ -73,6 +72,7 @@ class DataService {
   async getSalons(): Promise<Salon[]> {
     try {
       const response = await fetch(`${API_URL}/salons`);
+      if (!response.ok) throw new Error('Fetch failed');
       return await response.json();
     } catch (err) {
       return JSON.parse(localStorage.getItem('luxe_salons') || '[]');
@@ -80,16 +80,20 @@ class DataService {
   }
 
   async updateSalon(id: string, d: Partial<Salon>) {
-    // Logic for updating via API
+    // Logic for updating via API can be added here
   }
 
   async onboardSalon(data: Omit<Salon, 'id'>, managerName: string) {
     const id = `s_${Date.now()}`;
-    await fetch(`${API_URL}/salons`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, id, manager_name: managerName })
-    });
+    try {
+      await fetch(`${API_URL}/salons`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, id, manager_name: managerName })
+      });
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   async getStaff(salonId?: string): Promise<Staff[]> {
@@ -106,16 +110,16 @@ class DataService {
   async addStaff(s: Omit<Staff, 'id' | 'salonId'>) {
     const salonId = this.activeSalonId || 's1';
     const id = `st_${Date.now()}`;
-    await fetch(`${API_URL}/staff`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...s, id, salonId })
-    });
+    try {
+      await fetch(`${API_URL}/staff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...s, id, salonId })
+      });
+    } catch (e) { console.error(e); }
   }
 
-  async updateStaff(s: Staff) {
-    // Logic for updating via API
-  }
+  async updateStaff(s: Staff) {}
 
   async getInvoices(salonId?: string): Promise<Invoice[]> {
     const sid = salonId || this.activeSalonId;
@@ -129,11 +133,13 @@ class DataService {
   }
 
   async addInvoice(invoice: Invoice) {
-    await fetch(`${API_URL}/invoices`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(invoice)
-    });
+    try {
+      await fetch(`${API_URL}/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(invoice)
+      });
+    } catch (e) { console.error(e); }
   }
 
   async getCustomers(): Promise<Customer[]> {
@@ -151,11 +157,13 @@ class DataService {
   }
 
   async saveCustomer(customer: Customer) {
-    await fetch(`${API_URL}/customers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(customer)
-    });
+    try {
+      await fetch(`${API_URL}/customers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customer)
+      });
+    } catch (e) { console.error(e); }
   }
 
   async getAttendance(date: string, salonId: string | null): Promise<AttendanceRecord[]> {
@@ -168,15 +176,16 @@ class DataService {
   }
 
   async updateAttendance(record: AttendanceRecord) {
-    await fetch(`${API_URL}/attendance`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(record)
-    });
+    try {
+      await fetch(`${API_URL}/attendance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      });
+    } catch (e) { console.error(e); }
   }
 
   async getMonthlyAttendanceStats(staffId: string, month: number, year: number) {
-    // Basic implementation
     return { present: 0, lopDays: 0, extraHours: 0, effectiveDeductionDays: 0 };
   }
 
@@ -194,86 +203,34 @@ class DataService {
 
   async addReferralVoucher(v: ReferralVoucher) {}
 
-  async getPackageTemplates(): Promise<PackageTemplate[]> {
-    return [];
-  }
-
+  async getPackageTemplates(): Promise<PackageTemplate[]> { return []; }
   async addPackageTemplate(t: Omit<PackageTemplate, 'id'>) {}
-
   async deletePackageTemplate(id: string) {}
-
-  async getSittingPackageTemplates(): Promise<SittingPackageTemplate[]> {
-    return [];
-  }
-
+  async getSittingPackageTemplates(): Promise<SittingPackageTemplate[]> { return []; }
   async addSittingPackageTemplate(t: Omit<SittingPackageTemplate, 'id'>) {}
-
   async deleteSittingPackageTemplate(id: string) {}
-
-  async getPackageSubscriptions(salonId?: string): Promise<PackageSubscription[]> {
-    return [];
-  }
-
+  async getPackageSubscriptions(salonId?: string): Promise<PackageSubscription[]> { return []; }
   async addPackageSubscription(sub: PackageSubscription) {}
-
-  async deductFromPackage(mobile: string, amount: number, id: string, items: any[]) {
-    return null;
-  }
-
-  async getSittingPackageSubscriptions(salonId?: string): Promise<SittingPackageSubscription[]> {
-    return [];
-  }
-
+  async deductFromPackage(mobile: string, amount: number, id: string, items: any[]) { return null; }
+  async getSittingPackageSubscriptions(salonId?: string): Promise<SittingPackageSubscription[]> { return []; }
   async addSittingPackageSubscription(sub: SittingPackageSubscription) {}
-
-  async redeemSittingPackage(id: string, staffId: string, staffName: string) {
-    return null;
-  }
-
-  async getExpenses(salonId?: string): Promise<Expense[]> {
-    return [];
-  }
-
-  async getLatestExpense(salonId: string | null): Promise<Expense | null> {
-    return null;
-  }
-
+  async redeemSittingPackage(id: string, staffId: string, staffName: string) { return null; }
+  async getExpenses(salonId?: string): Promise<Expense[]> { return []; }
+  async getLatestExpense(salonId: string | null): Promise<Expense | null> { return null; }
   async addExpense(e: Omit<Expense, 'id'>) {}
-
-  async getServices(): Promise<Service[]> {
-    return [];
-  }
-
+  async getServices(): Promise<Service[]> { return []; }
   async addService(s: Omit<Service, 'id'>) {}
-
   async updateService(s: Service) {}
-
   async deleteService(id: string) {}
-
-  async getProfitLossRecord(salonId: string, month: number, year: number) {
-    return null;
-  }
-
+  async getProfitLossRecord(salonId: string, month: number, year: number) { return null; }
   async saveProfitLossRecord(record: ProfitLossRecord) {}
-
-  async getAdmins(): Promise<User[]> {
-    return [];
-  }
-
+  async getAdmins(): Promise<User[]> { return []; }
   async addAdmin(u: any) {}
-
-  async getManagers(): Promise<User[]> {
-    return [];
-  }
-
+  async getManagers(): Promise<User[]> { return []; }
   async addManager(u: any) {}
-
   async updateUser(id: string, d: Partial<User>) {}
-
   async deleteUser(id: string) {}
-
   async deleteCustomer(mobile: string) {}
-
   async bulkAddCustomers(list: Customer[]) {}
 }
 
