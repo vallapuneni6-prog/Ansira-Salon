@@ -4,8 +4,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   define: {
-    // This 'define' block is crucial for Vite to replace 
-    // process.env.API_KEY with your actual Dokploy environment variable
+    // This replaces process.env.API_KEY in the source code with the actual key value during build
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
   },
   build: {
