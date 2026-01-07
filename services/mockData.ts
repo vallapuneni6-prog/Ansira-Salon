@@ -1,10 +1,13 @@
+
 import { Salon, Staff, Invoice, AttendanceRecord, User, UserRole, Service, Voucher, Customer, PackageTemplate, PackageSubscription, PaymentMode, SittingPackageTemplate, SittingPackageSubscription, Expense, ProfitLossRecord, ReferralVoucher } from '../types';
 
 // Exporting ReferralVoucher to fix the error where components expect it from this module
 export type { ReferralVoucher };
 
-// Points to your Express backend
-const API_URL = 'http://localhost:3001/api';
+// Use environment variable for API_URL if available, otherwise default to local
+const API_URL = (typeof process !== 'undefined' && process.env.VITE_API_URL) 
+  ? process.env.VITE_API_URL 
+  : 'http://localhost:3001/api';
 
 class DataService {
   private currentUser: User | null = null;
@@ -134,8 +137,12 @@ class DataService {
   }
 
   async getCustomers(): Promise<Customer[]> {
-    const response = await fetch(`${API_URL}/customers`);
-    return await response.json();
+    try {
+      const response = await fetch(`${API_URL}/customers`);
+      return await response.json();
+    } catch (e) {
+      return [];
+    }
   }
 
   async findCustomer(mobile: string): Promise<Customer | undefined> {
@@ -152,8 +159,12 @@ class DataService {
   }
 
   async getAttendance(date: string, salonId: string | null): Promise<AttendanceRecord[]> {
-    const response = await fetch(`${API_URL}/attendance?date=${date}`);
-    return await response.json();
+    try {
+      const response = await fetch(`${API_URL}/attendance?date=${date}`);
+      return await response.json();
+    } catch (e) {
+      return [];
+    }
   }
 
   async updateAttendance(record: AttendanceRecord) {
@@ -173,17 +184,14 @@ class DataService {
     return 0;
   }
 
-  // Updated signature to return ReferralVoucher array
   async getVouchersByMobile(mobile: string): Promise<{ system: Voucher[], referrals: ReferralVoucher[] }> {
     return { system: [], referrals: [] };
   }
 
-  // Updated signature to return ReferralVoucher array
   async getReferralVouchers(): Promise<ReferralVoucher[]> {
     return [];
   }
 
-  // Updated signature to use ReferralVoucher type
   async addReferralVoucher(v: ReferralVoucher) {}
 
   async getPackageTemplates(): Promise<PackageTemplate[]> {

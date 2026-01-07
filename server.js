@@ -10,9 +10,20 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3001;
 
-// Use the "Internal Connection URL" from your Dokploy dashboard in your .env file as DATABASE_URL
+// Connection Pool Configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  // If connecting from outside Dokploy's internal network, 
+  // you might need ssl: { rejectUnauthorized: false }
+});
+
+// Test the connection on startup
+pool.connect((err, client, release) => {
+  if (err) {
+    return console.error('CRITICAL: Error acquiring client from database pool', err.stack);
+  }
+  console.log('SUCCESS: Connected to Dokploy PostgreSQL database.');
+  release();
 });
 
 app.use(cors());
