@@ -140,6 +140,20 @@ export interface Voucher {
   customerMobile?: string;
 }
 
+// Added ReferralVoucher interface to fix missing type errors in InvoiceForm and VouchersView
+export interface ReferralVoucher {
+  id: string;
+  guestName: string;
+  guestMobile: string;
+  referringName: string;
+  billNo: string;
+  validFrom: string;
+  validTill: string;
+  discount: string;
+  status: 'Active' | 'Redeemed' | 'Expired';
+  dateIssued: string;
+}
+
 export interface InvoiceItem {
   id: string;
   serviceName: string;

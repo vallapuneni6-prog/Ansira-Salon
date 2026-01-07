@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -9,6 +10,11 @@ import { VouchersView } from './components/VouchersView';
 import { PackagesView } from './components/PackagesView';
 import { ExpensesView } from './components/ExpensesView';
 import { AdminsView } from './components/AdminsView';
+import { ManagersView } from './components/ManagersView';
+import { CustomersView } from './components/CustomersView';
+import { PayrollView } from './components/PayrollView';
+import { ProfitLossView } from './components/ProfitLossView';
+import { PackageTemplatesView } from './components/PackageTemplatesView';
 import { Login } from './components/Login';
 import { InvoiceReceipt } from './components/InvoiceReceipt';
 import { dataService } from './services/mockData';
@@ -17,18 +23,24 @@ import { UserRole, Staff, Invoice } from './types';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAppLoading, setIsAppLoading] = useState(true);
   const [activeView, setActiveView] = useState('dashboard');
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [autoShareInvoice, setAutoShareInvoice] = useState(false);
-  const [staffSubView, setStaffSubView] = useState<'list' | 'attendance' | 'payroll'>('list');
+  
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [contextKey, setContextKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [invoiceList, setInvoiceList] = useState<Invoice[]>([]);
+  const [staffSubView, setStaffSubView] = useState<'list' | 'attendance'>('list');
+  const [staffPerformances, setStaffPerformances] = useState<Record<string, number>>({});
 
   const currentUser = dataService.getCurrentUser();
-  const isAdmin = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.SUPER_ADMIN;
-
-  const [refreshKey, setRefreshKey] = useState(0);
 
   const [staffForm, setStaffForm] = useState<Omit<Staff, 'id' | 'salonId'>>({
     name: '',
@@ -41,38 +53,72 @@ const App: React.FC = () => {
     status: 'Active'
   });
 
+  const loadViewData = async () => {
+    setLoading(true);
+    const [staff, invoices] = await Promise.all([
+      dataService.getStaff(),
+      dataService.getInvoices()
+    ]);
+    
+    setStaffList(staff);
+    setInvoiceList(invoices);
+
+    const performances: Record<string, number> = {};
+    const thisMonth = new Date().getMonth();
+    const thisYear = new Date().getFullYear();
+
+    await Promise.all(staff.map(async (s) => {
+      const sales = await dataService.calculateStaffSales(s.id, thisMonth, thisYear);
+      performances[s.id] = sales;
+    }));
+
+    setStaffPerformances(performances);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    if (currentUser) {
-      setIsAuthenticated(true);
-      if (currentUser.role === UserRole.MANAGER) setActiveView('dashboard');
-    }
+    const initAuth = async () => {
+      const user = dataService.getCurrentUser();
+      if (user) {
+        setIsAuthenticated(true);
+        if (user.role === UserRole.MANAGER) setActiveView('dashboard');
+      }
+      setIsAppLoading(false);
+    };
+    initAuth();
   }, []);
 
-  const handleLogin = () => {
-    setIsAuthenticated(true);
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadViewData();
+    }
+  }, [isAuthenticated, activeView, refreshKey]);
+
+  const handleLogin = async () => {
+    setIsAppLoading(true);
     const user = dataService.getCurrentUser();
+    setIsAuthenticated(true);
     if (user?.role === UserRole.MANAGER) setActiveView('dashboard');
-    else if (user?.role === UserRole.SUPER_ADMIN) {
+    else {
       dataService.setActiveSalonId(null);
       setActiveView('dashboard');
     }
+    setContextKey(prev => prev + 1);
+    setIsAppLoading(false);
   };
 
-  const handleLogout = () => {
-    dataService.logout();
+  const handleLogout = async () => {
+    setIsAppLoading(true);
+    await dataService.logout();
     setIsAuthenticated(false);
     setActiveView('dashboard');
     setShowInvoiceForm(false);
+    setIsAppLoading(false);
   };
 
-  const handleDirectWhatsAppShare = (inv: Invoice) => {
-    setSelectedInvoice(inv);
-    setAutoShareInvoice(true);
-  };
-
-  const closeReceipt = () => {
-    setSelectedInvoice(null);
-    setAutoShareInvoice(false);
+  const handleSetView = (view: string) => {
+    setActiveView(view);
+    setContextKey(prev => prev + 1);
   };
 
   const openAddEmployee = () => {
@@ -105,6 +151,21 @@ const App: React.FC = () => {
     setIsEmployeeModalOpen(true);
   };
 
+  const handleStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingStaffId) {
+      await dataService.updateStaff({ 
+        ...staffForm, 
+        id: editingStaffId, 
+        salonId: dataService.getActiveSalonId() || 's1'
+      });
+    } else {
+      await dataService.addStaff(staffForm);
+    }
+    setRefreshKey(prev => prev + 1);
+    setIsEmployeeModalOpen(false);
+  };
+
   const handleSalaryChange = (val: number) => {
     setStaffForm(prev => ({
       ...prev,
@@ -113,56 +174,57 @@ const App: React.FC = () => {
     }));
   };
 
+  // Added handleRoleChange to fix the missing name error on line 358
   const handleRoleChange = (role: 'Staff' | 'Manager' | 'House Keeping') => {
     setStaffForm(prev => ({
       ...prev,
-      role: role,
+      role,
       target: role === 'Staff' ? (prev.salary || 0) * 5 : 0
     }));
   };
 
-  const handleStaffSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editingStaffId) {
-      dataService.updateStaff({ 
-        ...staffForm, 
-        id: editingStaffId, 
-        salonId: dataService.getActiveSalonId() || 's1'
-      });
-    } else {
-      dataService.addStaff(staffForm);
-    }
-    setRefreshKey(prev => prev + 1);
-    setIsEmployeeModalOpen(false);
+  const closeReceipt = () => {
+    setSelectedInvoice(null);
+    setAutoShareInvoice(false);
   };
 
-  const handleAction = (actionId: string) => {
-    if (actionId === 'invoices') setShowInvoiceForm(true);
-    else {
-      if (actionId === 'dashboard' && currentUser?.role === UserRole.SUPER_ADMIN) {
-        dataService.setActiveSalonId(null); 
-      }
-      setActiveView(actionId);
-    }
+  const handleDirectWhatsAppShare = (inv: Invoice) => {
+    setSelectedInvoice(inv);
+    setAutoShareInvoice(true);
   };
+
+  if (isAppLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
+        <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Initializing Secure Connection...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) return <Login onLogin={handleLogin} />;
 
   const renderContent = () => {
     if (showInvoiceForm) return <InvoiceForm onComplete={() => setShowInvoiceForm(false)} />;
+    if (loading) return <div className="p-20 text-center animate-pulse text-slate-400 font-black uppercase tracking-widest">Synchronizing Ledger...</div>;
 
     switch (activeView) {
-      case 'dashboard': return <Dashboard onAction={handleAction} />;
-      case 'salons': return <SalonsView onManage={(id) => { dataService.setActiveSalonId(id); setActiveView('dashboard'); }} />;
+      case 'dashboard': return <Dashboard onAction={handleSetView} />;
+      case 'salons': return <SalonsView onManage={(id) => { dataService.setActiveSalonId(id); handleSetView('dashboard'); }} />;
       case 'admins': return <AdminsView />;
+      case 'managers': return <ManagersView />;
+      case 'customers': return <CustomersView />;
       case 'services': return <ServicesView />;
       case 'vouchers': return <VouchersView />;
+      case 'package_templates': return <PackageTemplatesView />;
       case 'packages': return <PackagesView />;
       case 'expenses': return <ExpensesView />;
+      case 'payroll': return <PayrollView />;
+      case 'profit_loss': return <ProfitLossView />;
       case 'invoices': return (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <div><h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Sales Ledger</h1><p className="text-sm text-slate-500 font-medium">Verified transactions for {dataService.getActiveSalon()?.name || 'All Outlets'}</p></div>
+            <div><h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Sales Ledger</h1><p className="text-sm text-slate-500 font-medium">Verified transactions</p></div>
             <button onClick={() => setShowInvoiceForm(true)} className="px-8 py-3 bg-indigo-600 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-indigo-700 transition shadow-lg">+ New Invoice</button>
           </div>
           <Card className="border-none shadow-xl rounded-[2rem]">
@@ -173,12 +235,11 @@ const App: React.FC = () => {
                     <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt ID</th>
                     <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
                     <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Value</th>
-                    <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Method</th>
                     <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Operations</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {dataService.getInvoices().map(inv => (
+                  {invoiceList.map(inv => (
                     <tr key={inv.id} className="hover:bg-slate-50/50 transition">
                       <td className="px-6 py-5 text-sm font-black text-indigo-600 uppercase tracking-tighter">{inv.id}</td>
                       <td className="px-6 py-5">
@@ -186,7 +247,6 @@ const App: React.FC = () => {
                          <div className="text-[10px] font-bold text-slate-400">{inv.customerMobile}</div>
                       </td>
                       <td className="px-6 py-5 text-sm font-black text-slate-800">₹{inv.total.toFixed(2)}</td>
-                      <td className="px-6 py-5"><span className="text-[10px] font-black text-slate-500 uppercase bg-slate-100 px-3 py-1.5 rounded-xl">{inv.packageName || inv.paymentMode}</span></td>
                       <td className="px-6 py-5 text-right"><div className="flex justify-end gap-2"><button onClick={() => setSelectedInvoice(inv)} className="text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50 px-4 py-2.5 rounded-xl transition hover:bg-indigo-600 hover:text-white">Review</button><button onClick={() => handleDirectWhatsAppShare(inv)} className="text-[10px] font-black uppercase tracking-widest text-white bg-emerald-500 px-5 py-2.5 rounded-xl transition shadow-xl shadow-emerald-500/10 active:scale-95">📲 Share</button></div></td>
                     </tr>
                   ))}
@@ -198,37 +258,27 @@ const App: React.FC = () => {
         </div>
       );
       case 'staff': return (
-        <div className="space-y-8 animate-in fade-in duration-500" key={refreshKey}>
+        <div className="space-y-8 animate-in fade-in duration-500">
           <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-6">
             <div>
               <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Personnel Registry</h1>
-              <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Workforce & Payout Governance</p>
+              <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Workforce Governance</p>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex bg-white p-1.5 rounded-2xl border border-slate-100 shadow-sm">
                 <button onClick={() => setStaffSubView('list')} className={`px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${staffSubView === 'list' ? 'bg-[#7C3AED] text-white shadow-xl' : 'text-slate-500 hover:text-slate-800'}`}>Staff List</button>
                 <button onClick={() => setStaffSubView('attendance')} className={`px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${staffSubView === 'attendance' ? 'bg-[#7C3AED] text-white shadow-xl' : 'text-slate-500 hover:text-slate-800'}`}>Attendance</button>
-                {isAdmin && <button onClick={() => setStaffSubView('payroll')} className={`px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${staffSubView === 'payroll' ? 'bg-[#7C3AED] text-white shadow-xl' : 'text-slate-500 hover:text-slate-800'}`}>Payroll Center</button>}
               </div>
               {staffSubView === 'list' && (
-                <button 
-                  onClick={openAddEmployee} 
-                  className="px-10 py-3 bg-[#1E293B] text-white font-black uppercase tracking-widest text-[10px] rounded-[1.5rem] shadow-2xl transition active:scale-95"
-                >
-                  + Add Personnel
-                </button>
+                <button onClick={openAddEmployee} className="px-10 py-3 bg-[#1E293B] text-white font-black uppercase tracking-widest text-[10px] rounded-[1.5rem] shadow-2xl transition active:scale-95">+ Add Personnel</button>
               )}
             </div>
           </div>
 
           {staffSubView === 'list' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {dataService.getStaff().map(s => {
-                const thisMonth = new Date().getMonth();
-                const thisYear = new Date().getFullYear();
-                
-                const actualSales = dataService.calculateStaffSales(s.id, thisMonth, thisYear);
-                
+              {staffList.map(s => {
+                const actualSales = staffPerformances[s.id] || 0;
                 const target = s.target || 0;
                 const achievementPercent = target > 0 ? (actualSales / target) * 100 : 0;
                 const cappedAchievement = Math.min(100, achievementPercent);
@@ -245,226 +295,101 @@ const App: React.FC = () => {
                           <div>
                             <h3 className="text-lg font-black text-slate-900">{s.name}</h3>
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{s.role}</p>
-                            {s.phone && <p className="text-[10px] font-bold text-slate-500 mt-1">📞 {s.phone}</p>}
                           </div>
                           <button onClick={() => openEditEmployee(s)} className="p-2.5 text-slate-300 hover:text-indigo-600 transition bg-slate-50 rounded-xl">✏️</button>
                         </div>
                       </div>
                     </div>
-
-                    {s.role === 'Staff' && (
-                      <div className="mt-8 space-y-4 relative z-10">
+                    <div className="mt-8 space-y-4">
                         <div className="flex justify-between items-end">
-                          <div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Monthly Sales Progression</p>
-                            <div className="flex items-baseline gap-1 mt-1">
-                              <span className="text-xl font-black text-slate-800">₹{actualSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                              <span className="text-[10px] font-bold text-slate-400">/ ₹{target.toLocaleString()}</span>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                             <span className={`text-[10px] font-black px-2.5 py-1.5 rounded-xl ${achievementPercent >= 100 ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
-                               {Math.round(achievementPercent)}%
-                             </span>
-                          </div>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Monthly Target</span>
+                            <span className="text-[10px] font-black text-indigo-600">{Math.round(achievementPercent)}%</span>
                         </div>
-                        
-                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                          <div 
-                            className={`h-full transition-all duration-1000 ease-out rounded-full ${achievementPercent >= 100 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-indigo-600'}`}
-                            style={{ width: `${cappedAchievement}%` }}
-                          />
+                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${cappedAchievement}%` }} />
                         </div>
-
-                        <div className={`p-4 rounded-2xl border flex justify-between items-center transition-all ${incentive > 0 ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
-                           <div>
-                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Estimated Surplus Bonus</p>
-                             <p className={`text-sm font-black ${incentive > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-                               ₹{incentive.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                             </p>
-                           </div>
-                           {incentive > 0 && <span className="text-lg">📈</span>}
+                        <div className="flex justify-between border-t border-slate-50 pt-4">
+                            <div className="text-[10px] font-bold text-slate-400">SALARY: ₹{(s.salary || 0).toLocaleString()}</div>
+                            <div className="text-[10px] font-bold text-emerald-600">INCENTIVE: ₹{incentive.toLocaleString()}</div>
                         </div>
-                      </div>
-                    )}
-
-                    <div className="mt-8 pt-6 border-t border-slate-50 flex justify-between items-end relative z-10">
-                      <div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Base Monthly Pay</p>
-                        <p className="text-sm font-black text-slate-800">₹{(s.salary || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="text-right flex flex-col items-end gap-1">
-                        <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest ${s.status === 'Active' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                          {s.status}
-                        </span>
-                        {s.joiningDate && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Onboard: {new Date(s.joiningDate).toLocaleDateString()}</p>}
-                      </div>
                     </div>
                   </Card>
                 );
               })}
             </div>
           )}
-
           {staffSubView === 'attendance' && <Attendance />}
-
-          {staffSubView === 'payroll' && isAdmin && (
-            <Card title="Operational Payouts & Performance Settlement" className="border-none shadow-2xl rounded-[2.5rem]">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50">
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Personnel</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Base Pay</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-center">Paid Days</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-rose-500 uppercase tracking-widest text-center">LOP Days</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-indigo-600 uppercase tracking-widest text-center">OT Hours</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-emerald-500 uppercase tracking-widest text-right">Incentive</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-900 uppercase tracking-widest text-right">Net Payout</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dataService.getStaff().map(s => {
-                      const thisMonth = new Date().getMonth();
-                      const thisYear = new Date().getFullYear();
-                      const stats = dataService.getMonthlyAttendanceStats(s.id, thisMonth, thisYear);
-                      
-                      const base = s.salary || 0;
-                      const daily = base / 30;
-                      const penalty = stats.effectiveDeductionDays * daily;
-                      const otPay = stats.extraHours * (daily / 8);
-                      
-                      const totalWeightedSales = dataService.calculateStaffSales(s.id, thisMonth, thisYear);
-                      
-                      const target = s.target || 0;
-                      const incentive = Math.max(0, (totalWeightedSales - target) * 0.10);
-
-                      const final = Math.max(0, base - penalty + otPay + incentive);
-                      return (
-                        <tr key={s.id} className="hover:bg-slate-50/50 transition">
-                          <td className="px-6 py-6">
-                            <div className="text-sm font-black text-slate-900">{s.name}</div>
-                            <div className="text-[10px] font-bold text-slate-400 uppercase">{s.role}</div>
-                          </td>
-                          <td className="px-6 py-6 text-right font-bold text-slate-600">₹{base.toLocaleString()}</td>
-                          <td className="px-6 py-6 text-center">
-                             <span className="text-sm font-black text-emerald-600">{stats.present}d</span>
-                          </td>
-                          <td className="px-6 py-6 text-center">
-                             <span className="text-sm font-black text-rose-500">{stats.lopDays}d</span>
-                          </td>
-                          <td className="px-6 py-6 text-center">
-                             <div className="flex flex-col">
-                                <span className="text-sm font-black text-indigo-600">{stats.extraHours}h</span>
-                                <span className="text-[8px] font-black text-indigo-300 uppercase">+₹{otPay.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                             </div>
-                          </td>
-                          <td className="px-6 py-6 text-right">
-                            <div className={`text-sm font-black ${incentive > 0 ? 'text-emerald-500' : 'text-slate-300'}`}>₹{incentive.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                            <div className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Weighted Sales: ₹{totalWeightedSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                          </td>
-                          <td className="px-6 py-6 text-right">
-                            <div className="text-xl font-black text-[#0F172A]">₹{final.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Final Disbursement</p>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
         </div>
       );
-      default: return <Dashboard onAction={handleAction} />;
+      default: return <Dashboard onAction={handleSetView} />;
     }
   };
 
   return (
-    <Layout activeView={activeView} setActiveView={setActiveView} onLogout={handleLogout}>
+    <Layout 
+      key={contextKey} 
+      activeView={activeView} 
+      setActiveView={handleSetView} 
+      onLogout={handleLogout}
+    >
       {renderContent()}
       
-      {/* EMPLOYEE MODAL */}
       {isEmployeeModalOpen && (
         <div className="fixed inset-0 bg-[#0F172A]/70 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-[650px] rounded-[3rem] p-12 shadow-2xl relative overflow-hidden border border-slate-100 max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <div className="bg-white w-full max-w-2xl rounded-[3rem] p-12 shadow-2xl relative border border-slate-100 animate-in zoom-in duration-300 max-h-[90vh] overflow-y-auto custom-scrollbar">
             <button 
               onClick={() => setIsEmployeeModalOpen(false)} 
-              className="absolute top-10 right-10 w-12 h-12 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors bg-slate-50 rounded-full"
+              className="absolute top-10 right-10 w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors bg-slate-50 rounded-full"
             >
-              <span className="text-3xl font-light">✕</span>
+              <span className="text-2xl">✕</span>
             </button>
-            
-            <h2 className="text-3xl font-black text-[#0F172A] mb-10 tracking-tight uppercase">
-              {editingStaffId ? 'Refine Profile' : 'Onboard Employee'}
-            </h2>
+            <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-8">Personnel Configuration</h2>
             
             <form onSubmit={handleStaffSubmit} className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Legal Name *</label>
-                  <input required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] transition-all" value={staffForm.name} onChange={e => setStaffForm(prev => ({...prev, name: e.target.value}))} placeholder="e.g. Rahul Sharma" />
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Legal Name *</label>
+                  <input required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:ring-4 focus:ring-indigo-50 transition-all" value={staffForm.name} onChange={e => setStaffForm({...staffForm, name: e.target.value})} placeholder="e.g. Alex Rivera" />
                 </div>
-                
                 <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Verified Mobile</label>
-                  <input type="tel" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] transition-all" value={staffForm.phone} onChange={e => setStaffForm(prev => ({...prev, phone: e.target.value}))} placeholder="10-digit primary contact" />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Deployment Role *</label>
-                  <select required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] appearance-none cursor-pointer transition-all" value={staffForm.role} onChange={e => handleRoleChange(e.target.value as any)}>
-                    <option value="Staff">Staff / Stylist</option>
-                    <option value="Manager">Manager</option>
-                    <option value="House Keeping">House Keeping</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Agreed Monthly Salary (₹) *</label>
-                  <input type="number" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] transition-all" value={staffForm.salary || ''} onChange={e => handleSalaryChange(parseFloat(e.target.value) || 0)} placeholder="Gross base per month" />
-                </div>
-
-                {staffForm.role === 'Staff' && (
-                  <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
-                    <label className="text-[11px] font-black text-indigo-400 uppercase tracking-widest ml-1">Mandatory Target (5x Salary)</label>
-                    <div className="relative">
-                      <input readOnly className="w-full px-6 py-4 bg-indigo-50 border border-indigo-100 rounded-2xl outline-none font-black text-indigo-600 cursor-not-allowed" value={staffForm.target ? `₹${staffForm.target.toLocaleString()}` : '0'} />
-                      <span className="absolute right-6 top-1/2 -translate-y-1/2 text-[9px] font-black text-indigo-300 uppercase tracking-widest">Policy Locked</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Joining Date *</label>
-                  <input required type="date" className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] transition-all" value={staffForm.joiningDate} onChange={e => setStaffForm(prev => ({...prev, joiningDate: e.target.value}))} />
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Contact No</label>
+                  <input className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:ring-4 focus:ring-indigo-50 transition-all" value={staffForm.phone} onChange={e => setStaffForm({...staffForm, phone: e.target.value})} placeholder="9876543210" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 border-t border-slate-50 pt-8">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Employment Status</label>
-                  <select className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-50 font-bold text-[#1E293B] transition-all cursor-pointer" value={staffForm.status} onChange={e => setStaffForm(prev => ({...prev, status: e.target.value as any}))}>
-                    <option value="Active">Active Duty</option>
-                    <option value="Inactive">Terminated / Exited</option>
-                  </select>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Operational Role</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {(['Staff', 'Manager', 'House Keeping'] as const).map(role => (
+                    <button 
+                      key={role}
+                      type="button"
+                      onClick={() => handleRoleChange(role)}
+                      className={`py-4 rounded-xl border font-black text-[10px] uppercase tracking-widest transition-all ${staffForm.role === role ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-100'}`}
+                    >
+                      {role}
+                    </button>
+                  ))}
                 </div>
-
-                {staffForm.status === 'Inactive' && (
-                  <div className="space-y-2 animate-in slide-in-from-right-4 duration-300">
-                    <label className="text-[11px] font-black text-rose-500 uppercase tracking-widest ml-1">Final Working Date *</label>
-                    <input required type="date" className="w-full px-6 py-4 bg-rose-50 border border-rose-100 rounded-2xl outline-none focus:ring-4 focus:ring-rose-100 font-bold text-rose-600 transition-all" value={staffForm.exitDate} onChange={e => setStaffForm(prev => ({...prev, exitDate: e.target.value}))} />
-                  </div>
-                )}
               </div>
 
-              <div className="flex gap-6 pt-10">
-                <button type="submit" className="flex-[2] py-6 bg-[#0F172A] text-white font-black rounded-3xl uppercase tracking-[0.25em] text-[12px] shadow-2xl hover:bg-black active:scale-[0.98] transition-all">
-                  {editingStaffId ? 'Commit Changes' : 'Finalize Onboarding'}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Monthly Base Salary (₹)</label>
+                  <input type="number" required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none" value={staffForm.salary || ''} onChange={e => handleSalaryChange(parseFloat(e.target.value) || 0)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest ml-1">Sales Target (Auto 5x)</label>
+                  <input type="number" required className="w-full px-6 py-4 bg-indigo-50 border border-indigo-100 rounded-2xl font-black text-indigo-600 outline-none" value={staffForm.target || ''} onChange={e => setStaffForm({...staffForm, target: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                <button type="submit" className="py-5 bg-[#0F172A] text-white font-black rounded-3xl uppercase tracking-widest text-[11px] shadow-2xl active:scale-95 transition-all">
+                  {editingStaffId ? 'Update Profile' : 'Complete Registry'}
                 </button>
-                <button type="button" onClick={() => setIsEmployeeModalOpen(false)} className="flex-1 py-6 bg-slate-100 text-slate-500 font-black rounded-3xl uppercase tracking-[0.2em] text-[12px] hover:bg-slate-200 transition-all shadow-sm">
-                  Cancel
+                <button type="button" onClick={() => setIsEmployeeModalOpen(false)} className="py-5 bg-slate-100 text-slate-500 font-black rounded-3xl uppercase tracking-widest text-[11px]">
+                  Discard
                 </button>
               </div>
             </form>

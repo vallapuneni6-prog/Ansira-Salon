@@ -2,14 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { dataService, ReferralVoucher } from '../services/mockData';
 import { Card } from './common/Card';
-import { InvoiceItem, PaymentMode, Voucher, PackageSubscription } from '../types';
+import { InvoiceItem, PaymentMode, Voucher, PackageSubscription, Staff, Service, Salon } from '../types';
 import { GST_RATE } from '../constants';
 
 export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
-  const staffList = dataService.getStaff();
-  const services = dataService.getServices();
-  
-  const selectableStaff = staffList.filter(s => s.role === 'Staff');
+  const [selectableStaff, setSelectableStaff] = useState<Staff[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [activeSalon, setActiveSalon] = useState<Salon | undefined>(undefined);
   
   const [customerName, setCustomerName] = useState('');
   const [customerMobile, setCustomerMobile] = useState('');
@@ -25,46 +24,64 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
   ]);
 
   useEffect(() => {
-    if (customerMobile.length >= 10) {
-      const customer = dataService.findCustomer(customerMobile);
-      const vouchersData = dataService.getVouchersByMobile(customerMobile);
-      const salonId = dataService.getActiveSalonId();
-      const subs = dataService.getPackageSubscriptions(salonId);
-      const customerSub = subs.find(s => s.customerMobile === customerMobile && s.status === 'Active');
-      
-      setActivePackage(customerSub || null);
-      setAvailableVouchers(vouchersData.system);
-      
-      // Auto-populate logic: If an active referral exists, prioritize it.
-      // Otherwise, check if a valid system policy voucher exists for this customer/site.
-      if (vouchersData.referrals.length > 0) {
-        const referral = vouchersData.referrals[0];
-        setActiveReferral(referral);
-        setSelectedVoucherCode(referral.id);
-      } else {
-        setActiveReferral(null);
-        const policyVoucher = vouchersData.system.find(v => v.code === 'POLICY35');
-        if (policyVoucher) {
-          setSelectedVoucherCode(policyVoucher.code);
-        } else {
-          setSelectedVoucherCode('');
-        }
-      }
+    const loadInitialData = async () => {
+      const [allStaff, allServices, salon] = await Promise.all([
+        dataService.getStaff(),
+        dataService.getServices(),
+        dataService.getActiveSalon()
+      ]);
+      setSelectableStaff(allStaff.filter(s => s.role === 'Staff'));
+      setServices(allServices);
+      setActiveSalon(salon);
+    };
+    loadInitialData();
+  }, []);
 
-      if (customer) {
-        setCustomerName(customer.name);
-        setIsNewCustomer(false);
+  useEffect(() => {
+    const lookupCustomer = async () => {
+      if (customerMobile.length >= 10) {
+        const [customer, vouchersData, salonId] = await Promise.all([
+          dataService.findCustomer(customerMobile),
+          dataService.getVouchersByMobile(customerMobile),
+          dataService.getActiveSalonId()
+        ]);
+        
+        const subs = await dataService.getPackageSubscriptions(salonId || undefined);
+        const customerSub = subs.find(s => s.customerMobile === customerMobile && s.status === 'Active');
+        
+        setActivePackage(customerSub || null);
+        setAvailableVouchers(vouchersData.system);
+        
+        if (vouchersData.referrals.length > 0) {
+          const referral = vouchersData.referrals[0];
+          setActiveReferral(referral);
+          setSelectedVoucherCode(referral.id);
+        } else {
+          setActiveReferral(null);
+          const policyVoucher = vouchersData.system.find(v => v.code === 'POLICY35');
+          if (policyVoucher) {
+            setSelectedVoucherCode(policyVoucher.code);
+          } else {
+            setSelectedVoucherCode('');
+          }
+        }
+
+        if (customer) {
+          setCustomerName(customer.name);
+          setIsNewCustomer(false);
+        } else {
+          setIsNewCustomer(true);
+          setCustomerName('');
+        }
       } else {
-        setIsNewCustomer(true);
-        setCustomerName('');
+        setIsNewCustomer(false);
+        setAvailableVouchers([]);
+        setActiveReferral(null);
+        setActivePackage(null);
+        setSelectedVoucherCode('');
       }
-    } else {
-      setIsNewCustomer(false);
-      setAvailableVouchers([]);
-      setActiveReferral(null);
-      setActivePackage(null);
-      setSelectedVoucherCode('');
-    }
+    };
+    lookupCustomer();
   }, [customerMobile]);
 
   const addItem = () => {
@@ -115,7 +132,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
   const gst = subtotal * GST_RATE;
   const total = Math.max(0, (subtotal + gst) - discount);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerMobile || !customerName || items.some(i => !i.serviceName || !i.staffId)) {
       alert("Please ensure Customer Mobile, Name, and all Service items (Staff + Service) are filled.");
@@ -127,9 +144,10 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
       return;
     }
 
+    const salonId = dataService.getActiveSalonId();
     const invoice = {
       id: `INV-${Date.now().toString().slice(-6)}`,
-      salonId: dataService.getActiveSalonId(),
+      salonId: salonId || 's1',
       customerName,
       customerMobile,
       items,
@@ -141,7 +159,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
       date: new Date().toISOString()
     };
 
-    dataService.addInvoice(invoice);
+    await dataService.addInvoice(invoice);
     onComplete();
   };
 
@@ -150,7 +168,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
       <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <div>
           <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Checkout Terminal</h1>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Terminal: {dataService.getActiveSalon()?.name}</p>
+          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Terminal: {activeSalon?.name}</p>
         </div>
         <button 
           onClick={onComplete}
@@ -170,7 +188,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                   type="tel" 
                   required
                   autoFocus
-                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-black text-slate-800 shadow-inner"
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-50 outline-none font-black text-slate-800 shadow-inner"
                   value={customerMobile}
                   onChange={e => setCustomerMobile(e.target.value)}
                   placeholder="Enter 10-digit mobile"
@@ -181,7 +199,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                 <input 
                   type="text" 
                   required
-                  className={`w-full px-5 py-4 border rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-black transition-all ${
+                  className={`w-full px-5 py-4 border rounded-2xl focus:ring-2 focus:ring-indigo-50 outline-none font-black transition-all ${
                     isNewCustomer ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-200 text-slate-800'
                   }`}
                   value={customerName}
@@ -218,7 +236,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Staff *</label>
                     <select 
                       required
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm shadow-sm"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-50 outline-none font-bold text-sm shadow-sm"
                       value={item.staffId}
                       onChange={e => updateItem(item.id, 'staffId', e.target.value)}
                     >
@@ -234,7 +252,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     <div className="relative">
                       <select
                         required
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm shadow-sm appearance-none"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-50 outline-none font-bold text-sm shadow-sm appearance-none"
                         value={item.serviceName}
                         onChange={e => handleServiceSelect(item.id, e.target.value)}
                       >
@@ -251,7 +269,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Rate (₹)</label>
                     <input 
                       type="number" 
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm shadow-sm"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-50 outline-none font-bold text-sm shadow-sm"
                       value={item.price || ''}
                       onChange={e => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
                     />
@@ -261,7 +279,7 @@ export const InvoiceForm: React.FC<{ onComplete: () => void }> = ({ onComplete }
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Qty</label>
                     <input 
                       type="number" 
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-sm shadow-sm"
+                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-50 outline-none font-bold text-sm shadow-sm"
                       value={item.quantity}
                       onChange={e => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
                     />

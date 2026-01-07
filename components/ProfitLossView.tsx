@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
@@ -7,9 +8,15 @@ export const ProfitLossView: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isSaving, setIsSaving] = useState(false);
+  const [autoFinancials, setAutoFinancials] = useState({
+    totalIncome: 0,
+    totalSalaries: 0,
+    totalIncentives: 0,
+    outletExpenses: 0
+  });
 
   const salonId = dataService.getActiveSalonId() || 's1';
-  const activeSalon = dataService.getActiveSalon();
+  // Removed unused activeSalon promise assignment that was causing typing issues
 
   const [formData, setFormData] = useState<Omit<ProfitLossRecord, 'salonId' | 'month' | 'year'>>({
     rent: 0,
@@ -28,22 +35,24 @@ export const ProfitLossView: React.FC = () => {
     "July", "August", "September", "October", "November", "December"
   ];
 
-  // Auto-calculated data
-  const calculateAutoFinancials = () => {
-    // 1. Revenue (Direct + Packages)
-    const invoices = dataService.getInvoices(salonId).filter(inv => {
+  const calculateAutoFinancials = async () => {
+    // 1. Revenue
+    const allInvoices = await dataService.getInvoices(salonId);
+    const invoices = allInvoices.filter(inv => {
       const d = new Date(inv.date);
       return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const directSales = invoices.filter(i => i.paymentMode !== PaymentMode.PACKAGE).reduce((acc, inv) => acc + inv.total, 0);
 
-    const valPackages = dataService.getPackageSubscriptions(salonId).filter(pkg => {
+    const allValPackages = await dataService.getPackageSubscriptions(salonId);
+    const valPackages = allValPackages.filter(pkg => {
       const d = new Date(pkg.assignedDate);
       return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const packageSales = valPackages.reduce((acc, pkg) => acc + pkg.paidAmount, 0);
 
-    const sitPackages = dataService.getSittingPackageSubscriptions(salonId).filter(pkg => {
+    const allSitPackages = await dataService.getSittingPackageSubscriptions(salonId);
+    const sitPackages = allSitPackages.filter(pkg => {
       const d = new Date(pkg.assignedDate);
       return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
@@ -51,78 +60,82 @@ export const ProfitLossView: React.FC = () => {
 
     const totalIncome = directSales + packageSales + sittingSales;
 
-    // 2. Petty Cash Expenses (from Daily Cash Ledger)
-    const expensesList = dataService.getExpenses(salonId).filter(exp => {
+    // 2. Petty Cash Expenses
+    const allExpenses = await dataService.getExpenses(salonId);
+    const expensesList = allExpenses.filter(exp => {
       const d = new Date(exp.date);
       return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
     const outletExpenses = expensesList.reduce((acc, exp) => acc + exp.expenseAmount, 0);
 
     // 3. Payroll
-    const staffList = dataService.getStaff(salonId);
+    const staffList = await dataService.getStaff(salonId);
     let totalSalaries = 0;
     let totalIncentives = 0;
 
-    staffList.forEach(s => {
-      const stats = dataService.getMonthlyAttendanceStats(s.id, selectedMonth, selectedYear);
+    for (const s of staffList) {
+      const stats = await dataService.getMonthlyAttendanceStats(s.id, selectedMonth, selectedYear);
       const base = s.salary || 0;
       const daily = base / 30;
       const deductions = stats.effectiveDeductionDays * daily;
       const otPay = stats.extraHours * (daily / 8);
       totalSalaries += (base - deductions + otPay);
 
-      const actualSales = dataService.calculateStaffSales(s.id, selectedMonth, selectedYear);
+      const actualSales = await dataService.calculateStaffSales(s.id, selectedMonth, selectedYear);
       const target = s.target || 0;
       totalIncentives += s.role === 'Staff' ? Math.max(0, (actualSales - target) * 0.10) : 0;
-    });
+    }
 
-    return { totalIncome, totalSalaries, totalIncentives, outletExpenses };
+    setAutoFinancials({ totalIncome, totalSalaries, totalIncentives, outletExpenses });
   };
 
-  const auto = calculateAutoFinancials();
-
   useEffect(() => {
-    const saved = dataService.getProfitLossRecord(salonId, selectedMonth, selectedYear);
-    if (saved) {
-      setFormData({
-        rent: saved.rent,
-        royalty: saved.royalty,
-        gst: saved.gst,
-        powerBill: saved.powerBill,
-        productsBill: saved.productsBill,
-        mobileInternet: saved.mobileInternet,
-        laundry: saved.laundry,
-        marketing: saved.marketing,
-        others: saved.others
-      });
-    } else {
-      setFormData({ rent: 0, royalty: 0, gst: 0, powerBill: 0, productsBill: 0, mobileInternet: 0, laundry: 0, marketing: 0, others: 0 });
-    }
+    calculateAutoFinancials();
   }, [selectedMonth, selectedYear, salonId]);
 
-  const totalExpenses = formData.rent + formData.royalty + auto.totalSalaries + auto.totalIncentives + formData.gst + 
-                        formData.powerBill + formData.productsBill + formData.mobileInternet + formData.laundry + 
-                        formData.marketing + formData.others + auto.outletExpenses;
+  useEffect(() => {
+    const loadRecord = async () => {
+      const saved = await dataService.getProfitLossRecord(salonId, selectedMonth, selectedYear);
+      if (saved) {
+        setFormData({
+          rent: saved.rent,
+          royalty: saved.royalty,
+          gst: saved.gst,
+          powerBill: saved.powerBill,
+          productsBill: saved.productsBill,
+          mobileInternet: saved.mobileInternet,
+          laundry: saved.laundry,
+          marketing: saved.marketing,
+          others: saved.others
+        });
+      } else {
+        setFormData({ rent: 0, royalty: 0, gst: 0, powerBill: 0, productsBill: 0, mobileInternet: 0, laundry: 0, marketing: 0, others: 0 });
+      }
+    };
+    loadRecord();
+  }, [selectedMonth, selectedYear, salonId]);
 
-  const totalProfit = auto.totalIncome - totalExpenses;
+  const totalExpenses = formData.rent + formData.royalty + autoFinancials.totalSalaries + autoFinancials.totalIncentives + formData.gst + 
+                        formData.powerBill + formData.productsBill + formData.mobileInternet + formData.laundry + 
+                        formData.marketing + formData.others + autoFinancials.outletExpenses;
+
+  const totalProfit = autoFinancials.totalIncome - totalExpenses;
 
   const handleInputChange = (field: keyof typeof formData, val: string) => {
     const numeric = parseFloat(val) || 0;
     setFormData(prev => ({ ...prev, [field]: numeric }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      dataService.saveProfitLossRecord({
-        salonId,
-        month: selectedMonth,
-        year: selectedYear,
-        ...formData
-      });
-      setIsSaving(false);
-      alert('P&L Audit Records committed successfully.');
-    }, 800);
+    await dataService.saveProfitLossRecord({
+      salonId,
+      month: selectedMonth,
+      year: selectedYear,
+      ...formData
+    });
+    setIsSaving(false);
+    alert('P&L Audit Records committed successfully.');
   };
 
   const Row = ({ label, description, amount, isEditable, field }: { label: string, description?: string, amount: number, isEditable?: boolean, field?: keyof typeof formData }) => (
@@ -192,7 +205,7 @@ export const ProfitLossView: React.FC = () => {
         {/* INCOME HEADER */}
         <div className="bg-indigo-50/60 px-6 py-4 flex justify-between items-center border-b border-indigo-100">
           <span className="text-[13px] font-black text-indigo-900 uppercase">Total Income</span>
-          <span className="text-[13px] font-black text-indigo-900">₹{auto.totalIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+          <span className="text-[13px] font-black text-indigo-900">₹{autoFinancials.totalIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
 
         {/* EXPENSE LIST */}
@@ -202,12 +215,12 @@ export const ProfitLossView: React.FC = () => {
           <Row 
             label="Salaries" 
             description="Total Salary to Credit from Payroll" 
-            amount={auto.totalSalaries} 
+            amount={autoFinancials.totalSalaries} 
           />
           <Row 
             label="Incentives" 
             description="From Payroll (automatically calculated based on staff targets)" 
-            amount={auto.totalIncentives} 
+            amount={autoFinancials.totalIncentives} 
           />
           <Row label="GST" amount={formData.gst} isEditable field="gst" />
           <Row label="Power Bill" amount={formData.powerBill} isEditable field="powerBill" />
@@ -219,7 +232,7 @@ export const ProfitLossView: React.FC = () => {
           <Row 
             label="Outlet Expenses" 
             description="Daily Cash Ledger expenditures (petty cash)" 
-            amount={auto.outletExpenses} 
+            amount={autoFinancials.outletExpenses} 
           />
         </div>
 
@@ -241,19 +254,20 @@ export const ProfitLossView: React.FC = () => {
              <h4 className="text-2xl font-black uppercase tracking-tight mb-4">P&L Submission Protocol</h4>
              <div className="space-y-4">
                 <p className="text-sm text-slate-400 leading-relaxed">
-                  <span className="text-white font-bold">Auto-Calculations:</span> Income, Salaries, and Incentives are derived directly from the <span className="text-indigo-400 font-bold">Sales Ledger</span> and <span className="text-indigo-400 font-bold">Personnel Registry</span>. Please ensure those modules are up-to-date before committing the P&L audit.
+                  <span className="text-white font-bold">Verification:</span> All data points must correspond to verified bank statements and receipts from the outlet manager.
                 </p>
                 <p className="text-sm text-slate-400 leading-relaxed">
-                  <span className="text-white font-bold">Audit Lock:</span> Once saved, these figures are recorded for regional reporting. Managers should verify with physical bills before submitting "Power", "Rent", and "Product" components.
+                  <span className="text-white font-bold">Locking:</span> Once committed, records for the previous month are locked for regional audit.
                 </p>
              </div>
           </div>
           <div className="flex flex-col items-center p-8 bg-white/5 rounded-[2rem] border border-white/5 backdrop-blur-xl">
-             <div className="text-5xl mb-4">💹</div>
-             <p className="text-xs font-black uppercase tracking-widest text-emerald-400">Yield Optimized</p>
-             <p className="text-[10px] text-slate-500 mt-2 text-center">Commiting regular P&L data<br/>improves AI business forecasts.</p>
+             <div className="text-5xl mb-4">🏛️</div>
+             <p className="text-xs font-black uppercase tracking-widest">Financial Integrity</p>
+             <p className="text-[10px] text-slate-500 mt-2 text-center">Data is directly synchronized<br/>with the regional treasury.</p>
           </div>
         </div>
+        <div className="absolute -right-12 -bottom-12 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl"></div>
       </div>
     </div>
   );

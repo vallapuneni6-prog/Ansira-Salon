@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
 import { PackageTemplate, SittingPackageTemplate, Salon } from '../types';
@@ -6,10 +7,11 @@ import { PackageTemplate, SittingPackageTemplate, Salon } from '../types';
 export const PackageTemplatesView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'value' | 'sitting'>('value');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   
-  const salons = dataService.getSalons();
-  const [valueTemplates, setValueTemplates] = useState(dataService.getPackageTemplates());
-  const [sittingTemplates, setSittingTemplates] = useState(dataService.getSittingPackageTemplates());
+  const [salons, setSalons] = useState<Salon[]>([]);
+  const [valueTemplates, setValueTemplates] = useState<PackageTemplate[]>([]);
+  const [sittingTemplates, setSittingTemplates] = useState<SittingPackageTemplate[]>([]);
 
   const [valueForm, setValueForm] = useState({
     name: '',
@@ -24,6 +26,23 @@ export const PackageTemplatesView: React.FC = () => {
     compSittings: 0,
     salonIds: [] as string[]
   });
+
+  const loadData = async () => {
+    setLoading(true);
+    const [salonList, valTmpls, sitTmpls] = await Promise.all([
+      dataService.getSalons(),
+      dataService.getPackageTemplates(),
+      dataService.getSittingPackageTemplates()
+    ]);
+    setSalons(salonList);
+    setValueTemplates(valTmpls);
+    setSittingTemplates(sitTmpls);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleToggleValueSalon = (id: string) => {
     setValueForm(prev => ({
@@ -43,20 +62,19 @@ export const PackageTemplatesView: React.FC = () => {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (activeTab === 'value') {
       if (!valueForm.name || valueForm.salonIds.length === 0) return;
-      dataService.addPackageTemplate(valueForm);
-      setValueTemplates(dataService.getPackageTemplates());
+      await dataService.addPackageTemplate(valueForm);
     } else {
       if (!sittingForm.name || sittingForm.salonIds.length === 0) return;
-      dataService.addSittingPackageTemplate({
+      await dataService.addSittingPackageTemplate({
         ...sittingForm,
         totalSittings: sittingForm.paidSittings + sittingForm.compSittings
       });
-      setSittingTemplates(dataService.getSittingPackageTemplates());
     }
+    await loadData();
     setIsModalOpen(false);
     resetForms();
   };
@@ -66,19 +84,23 @@ export const PackageTemplatesView: React.FC = () => {
     setSittingForm({ name: '', paidSittings: 0, compSittings: 0, salonIds: [] });
   };
 
-  const handleDeleteValue = (id: string) => {
+  const handleDeleteValue = async (id: string) => {
     if (window.confirm('Delete this template? Existing subscriptions won\'t be affected.')) {
-      dataService.deletePackageTemplate(id);
-      setValueTemplates(dataService.getPackageTemplates());
+      await dataService.deletePackageTemplate(id);
+      await loadData();
     }
   };
 
-  const handleDeleteSitting = (id: string) => {
+  const handleDeleteSitting = async (id: string) => {
     if (window.confirm('Delete this bundle template?')) {
-      dataService.deleteSittingPackageTemplate(id);
-      setSittingTemplates(dataService.getSittingPackageTemplates());
+      await dataService.deleteSittingPackageTemplate(id);
+      await loadData();
     }
   };
+
+  if (loading) {
+    return <div className="p-20 text-center animate-pulse text-slate-400 font-black uppercase tracking-widest">Synchronizing Blueprints...</div>;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">

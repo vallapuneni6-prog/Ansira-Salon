@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from './common/Card';
 import { dataService, ReferralVoucher } from '../services/mockData';
+import { Salon } from '../types';
 import html2canvas from 'html2canvas';
 
 // Using a stable logo source
@@ -13,8 +15,7 @@ export const VouchersView: React.FC = () => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [recentReferrals, setRecentReferrals] = useState<ReferralVoucher[]>([]);
   const [expiringVouchers, setExpiringVouchers] = useState<ReferralVoucher[]>([]);
-  
-  const currentSalon = dataService.getActiveSalon();
+  const [currentSalon, setCurrentSalon] = useState<Salon | undefined>(undefined);
 
   const [referralForm, setReferralForm] = useState({
     referringName: '',
@@ -24,34 +25,44 @@ export const VouchersView: React.FC = () => {
   });
 
   useEffect(() => {
-    const allVouchers = dataService.getReferralVouchers();
-    setRecentReferrals(allVouchers);
+    const loadData = async () => {
+      const [allVouchers, salon] = await Promise.all([
+        dataService.getReferralVouchers(),
+        dataService.getActiveSalon()
+      ]);
+      setRecentReferrals(allVouchers);
+      setCurrentSalon(salon);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const threeDaysFromNow = new Date(today);
-    threeDaysFromNow.setDate(today.getDate() + 3);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const threeDaysFromNow = new Date(today);
+      threeDaysFromNow.setDate(today.getDate() + 3);
 
-    const expiring = allVouchers.filter(v => {
-      if (v.status !== 'Active') return false;
-      
-      const [day, month, year] = v.validTill.split('/').map(Number);
-      const expiryDate = new Date(year, month - 1, day);
-      expiryDate.setHours(0, 0, 0, 0);
+      const expiring = allVouchers.filter(v => {
+        if (v.status !== 'Active') return false;
+        
+        const [day, month, year] = v.validTill.split('/').map(Number);
+        const expiryDate = new Date(year, month - 1, day);
+        expiryDate.setHours(0, 0, 0, 0);
 
-      return expiryDate >= today && expiryDate <= threeDaysFromNow;
-    });
+        return expiryDate >= today && expiryDate <= threeDaysFromNow;
+      });
 
-    setExpiringVouchers(expiring);
+      setExpiringVouchers(expiring);
+    };
+    loadData();
   }, [isIssueModalOpen, generatedVoucher, activeTab]);
 
   useEffect(() => {
-    if (referralForm.friendMobile.length >= 10) {
-      const customer = dataService.findCustomer(referralForm.friendMobile);
-      if (customer) {
-        setReferralForm(prev => ({ ...prev, friendName: customer.name }));
+    const lookupCustomer = async () => {
+      if (referralForm.friendMobile.length >= 10) {
+        const customer = await dataService.findCustomer(referralForm.friendMobile);
+        if (customer) {
+          setReferralForm(prev => ({ ...prev, friendName: customer.name }));
+        }
       }
-    }
+    };
+    lookupCustomer();
   }, [referralForm.friendMobile]);
 
   const handleClear = () => {
@@ -63,14 +74,14 @@ export const VouchersView: React.FC = () => {
     });
   };
 
-  const handleIssueVoucher = (e: React.FormEvent) => {
+  const handleIssueVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!referralForm.referringName || !referralForm.friendName || !referralForm.friendMobile || !referralForm.billNo) {
       alert("Please fill all required fields");
       return;
     }
     
-    dataService.saveCustomer({
+    await dataService.saveCustomer({
       mobile: referralForm.friendMobile,
       name: referralForm.friendName
     });
@@ -95,7 +106,7 @@ export const VouchersView: React.FC = () => {
       dateIssued: new Date().toISOString()
     };
 
-    dataService.addReferralVoucher(newVoucher);
+    await dataService.addReferralVoucher(newVoucher);
     setGeneratedVoucher(newVoucher);
     setIsIssueModalOpen(false);
   };

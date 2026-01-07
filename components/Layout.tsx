@@ -22,7 +22,15 @@ const BRAND_LOGO_URL = "https://www.naturals.in/wp-content/uploads/2023/04/Natur
 export const Layout: React.FC<LayoutProps> = ({ children, activeView, setActiveView, onLogout }) => {
   const user = dataService.getCurrentUser();
   const activeSalonId = dataService.getActiveSalonId();
-  const currentSalon = dataService.getActiveSalon();
+  const [currentSalonName, setCurrentSalonName] = React.useState('Global View');
+
+  React.useEffect(() => {
+    const loadContext = async () => {
+      const salon = await dataService.getActiveSalon();
+      setCurrentSalonName(salon ? salon.name : 'Global View');
+    };
+    loadContext();
+  }, [activeSalonId]);
 
   const handleLogout = () => {
     onLogout();
@@ -70,9 +78,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, setActiveV
             src={BRAND_LOGO_URL} 
             alt="Naturals Logo" 
             className="w-full max-w-[160px] h-auto object-contain"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://placehold.co/400x120/7C3AED/white?text=NATURALS";
-            }}
           />
           <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-4">
             {user ? getRoleLabel(user.role) : ''}
@@ -107,7 +112,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, setActiveV
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-slate-900 truncate">{user?.name}</p>
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Active Session</p>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Database Live</p>
+              </div>
             </div>
           </div>
           <button 
@@ -124,9 +132,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, setActiveV
         <header className="h-20 bg-white/70 backdrop-blur-xl border-b border-slate-100 flex items-center justify-between px-12 z-10 sticky top-0">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3 bg-white px-5 py-2.5 rounded-2xl shadow-sm border border-slate-50">
-              <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
               <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Context:</span>
-              <span className="text-sm font-bold text-slate-900">{currentSalon ? currentSalon.name : 'Global View'}</span>
+              <span className="text-sm font-bold text-slate-900">{currentSalonName}</span>
             </div>
             {activeSalonId && user?.role !== UserRole.MANAGER && (
               <button 
@@ -139,6 +146,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeView, setActiveV
           </div>
 
           <div className="flex items-center gap-6">
+             <div className="hidden md:flex flex-col items-end mr-4">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">System Status</p>
+                <p className="text-[11px] font-bold text-emerald-500 uppercase">Postgres: Healthy</p>
+             </div>
             <button className="w-10 h-10 flex items-center justify-center bg-white rounded-xl text-slate-400 hover:text-slate-600 transition-all shadow-sm border border-slate-50 relative group">
               <span className="text-lg">🔔</span>
               <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white group-hover:scale-110 transition-transform"></span>

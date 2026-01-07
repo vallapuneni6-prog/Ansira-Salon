@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
 import { Customer } from '../types';
 
 export const CustomersView: React.FC = () => {
-  const [customers, setCustomers] = useState(dataService.getCustomers());
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -14,23 +15,32 @@ export const CustomersView: React.FC = () => {
     mobile: ''
   });
 
+  const loadCustomers = async () => {
+    const list = await dataService.getCustomers();
+    setCustomers(list);
+  };
+
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
   const handleOpenModal = () => {
     setFormData({ name: '', mobile: '' });
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.mobile || !formData.name) return;
-    dataService.saveCustomer(formData);
-    setCustomers([...dataService.getCustomers()]);
+    await dataService.saveCustomer(formData);
+    await loadCustomers();
     setIsModalOpen(false);
   };
 
-  const handleDelete = (mobile: string) => {
+  const handleDelete = async (mobile: string) => {
     if (window.confirm('Erase this customer record from the master list?')) {
-      dataService.deleteCustomer(mobile);
-      setCustomers([...dataService.getCustomers()]);
+      await dataService.deleteCustomer(mobile);
+      await loadCustomers();
     }
   };
 
@@ -39,7 +49,7 @@ export const CustomersView: React.FC = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target?.result as string;
       const rows = text.split('\n');
       const newCustomers: Customer[] = [];
@@ -55,8 +65,8 @@ export const CustomersView: React.FC = () => {
       });
 
       if (newCustomers.length > 0) {
-        dataService.bulkAddCustomers(newCustomers);
-        setCustomers([...dataService.getCustomers()]);
+        await dataService.bulkAddCustomers(newCustomers);
+        await loadCustomers();
         alert(`Successfully synchronized ${newCustomers.length} client records.`);
       } else {
         alert("Parsing Error: No valid client records found. Ensure CSV format is 'Name, Mobile'");

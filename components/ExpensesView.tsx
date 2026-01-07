@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from './common/Card';
 import { dataService } from '../services/mockData';
@@ -32,17 +33,17 @@ export const ExpensesView: React.FC = () => {
     'Others'
   ];
 
+  const refreshData = async () => {
+    const list = await dataService.getExpenses(salonId || undefined);
+    setExpenses(list);
+  };
+
   useEffect(() => {
     refreshData();
   }, [salonId]);
 
-  const refreshData = () => {
-    const list = dataService.getExpenses(salonId);
-    setExpenses(list);
-  };
-
-  const handleOpenModal = () => {
-    const latest = dataService.getLatestExpense(salonId);
+  const handleOpenModal = async () => {
+    const latest = await dataService.getLatestExpense(salonId);
     setFormData({
       date: new Date().toISOString().split('T')[0],
       openingBalance: latest ? latest.closingBalance : 0,
@@ -56,22 +57,22 @@ export const ExpensesView: React.FC = () => {
 
   const closingBalance = formData.openingBalance + formData.cashReceived - formData.expenseAmount - formData.cashDeposited;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.category) {
       alert("Please select an expense category");
       return;
     }
 
-    dataService.addExpense({
+    await dataService.addExpense({
       ...formData,
-      salonId,
+      salonId: salonId || 's1',
       closingBalance,
       recordedBy: dataService.getCurrentUser()?.name || 'System'
     });
 
     setIsModalOpen(false);
-    refreshData();
+    await refreshData();
   };
 
   return (

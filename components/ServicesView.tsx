@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
 import { Service } from '../types';
 
 export const ServicesView: React.FC = () => {
-  const [services, setServices] = useState(dataService.getServices());
+  const [services, setServices] = useState<Service[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
@@ -15,6 +16,15 @@ export const ServicesView: React.FC = () => {
     category: 'Hair',
     basePrice: 0
   });
+
+  const loadServices = async () => {
+    const list = await dataService.getServices();
+    setServices(list);
+  };
+
+  useEffect(() => {
+    loadServices();
+  }, []);
 
   const handleOpenModal = (svc?: Service) => {
     if (svc) {
@@ -27,21 +37,21 @@ export const ServicesView: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingService) {
-      dataService.updateService({ ...formData, id: editingService.id });
+      await dataService.updateService({ ...formData, id: editingService.id });
     } else {
-      dataService.addService(formData);
+      await dataService.addService(formData);
     }
-    setServices([...dataService.getServices()]);
+    await loadServices();
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Delete this service from the database?')) {
-      dataService.deleteService(id);
-      setServices([...dataService.getServices()]);
+      await dataService.deleteService(id);
+      await loadServices();
     }
   };
 
@@ -50,7 +60,7 @@ export const ServicesView: React.FC = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target?.result as string;
       const rows = text.split('\n');
       const newServices: Omit<Service, 'id'>[] = [];
@@ -70,8 +80,10 @@ export const ServicesView: React.FC = () => {
       });
 
       if (newServices.length > 0) {
-        newServices.forEach(s => dataService.addService(s));
-        setServices([...dataService.getServices()]);
+        for (const s of newServices) {
+          await dataService.addService(s);
+        }
+        await loadServices();
         alert(`Successfully imported ${newServices.length} services.`);
       } else {
         alert("No valid services found in CSV. Please ensure the format is: Name, Category, Price");

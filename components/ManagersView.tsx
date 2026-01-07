@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
-import { User, UserRole } from '../types';
+import { User, UserRole, Salon } from '../types';
 
 export const ManagersView: React.FC = () => {
-  const [managers, setManagers] = useState(dataService.getManagers());
+  const [managers, setManagers] = useState<User[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingMgrId, setEditingMgrId] = useState<string | null>(null);
-  const salons = dataService.getSalons();
+  const [salons, setSalons] = useState<Salon[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -15,6 +16,19 @@ export const ManagersView: React.FC = () => {
     password: '',
     salonId: ''
   });
+
+  const loadData = async () => {
+    const [managerList, salonList] = await Promise.all([
+      dataService.getManagers(),
+      dataService.getSalons()
+    ]);
+    setManagers(managerList);
+    setSalons(salonList);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const openAddModal = () => {
     setEditingMgrId(null);
@@ -33,7 +47,7 @@ export const ManagersView: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.salonId) {
       alert("A manager must be assigned to exactly one outlet.");
@@ -47,9 +61,10 @@ export const ManagersView: React.FC = () => {
         salonIds: [formData.salonId]
       };
       if (formData.password) updateData.password = formData.password;
-      dataService.updateUser(editingMgrId, updateData);
+      await dataService.updateUser(editingMgrId, updateData);
     } else {
-      dataService.addManager({
+      await dataService.addManager({
+        id: '',
         name: formData.name,
         username: formData.username,
         password: formData.password || '123',
@@ -57,14 +72,14 @@ export const ManagersView: React.FC = () => {
         salonIds: [formData.salonId]
       });
     }
-    setManagers(dataService.getManagers());
+    await loadData();
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Terminate access for this Outlet Manager?')) {
-      dataService.deleteUser(id);
-      setManagers(dataService.getManagers());
+      await dataService.deleteUser(id);
+      await loadData();
     }
   };
 

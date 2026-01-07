@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
 import { UserRole, Salon } from '../types';
@@ -8,7 +9,7 @@ interface SalonsViewProps {
 }
 
 export const SalonsView: React.FC<SalonsViewProps> = ({ onManage }) => {
-  const [salons, setSalons] = useState(dataService.getSalons());
+  const [salons, setSalons] = useState<Salon[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSalonId, setEditingSalonId] = useState<string | null>(null);
 
@@ -22,6 +23,15 @@ export const SalonsView: React.FC<SalonsViewProps> = ({ onManage }) => {
     gstNumber: '',
     managerName: ''
   });
+
+  const loadSalons = async () => {
+    const list = await dataService.getSalons();
+    setSalons(list);
+  };
+
+  useEffect(() => {
+    loadSalons();
+  }, []);
 
   const colorVariants = [
     { bg: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-100', iconBg: 'bg-indigo-100', status: 'bg-indigo-50 text-indigo-600 border-indigo-100' },
@@ -51,10 +61,10 @@ export const SalonsView: React.FC<SalonsViewProps> = ({ onManage }) => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingSalonId) {
-      dataService.updateSalon(editingSalonId, {
+      await dataService.updateSalon(editingSalonId, {
         name: formData.name,
         address: formData.address,
         contact: formData.contact,
@@ -62,12 +72,12 @@ export const SalonsView: React.FC<SalonsViewProps> = ({ onManage }) => {
         managerName: formData.managerName
       });
     } else {
-      dataService.onboardSalon(
+      await dataService.onboardSalon(
         { name: formData.name, address: formData.address, contact: formData.contact, gstNumber: formData.gstNumber },
         formData.managerName
       );
     }
-    setSalons([...dataService.getSalons()]);
+    await loadSalons();
     setIsModalOpen(false);
   };
 

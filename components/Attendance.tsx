@@ -1,40 +1,59 @@
+
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
-import { AttendanceStatus, AttendanceRecord } from '../types';
+import { AttendanceStatus, AttendanceRecord, Staff } from '../types';
 
 export const Attendance: React.FC = () => {
   const salonId = dataService.getActiveSalonId();
-  const staff = dataService.getStaff(salonId);
+  const [staff, setStaff] = useState<Staff[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [localAttendance, setLocalAttendance] = useState<AttendanceRecord[]>([]);
+  const [monthlyStats, setMonthlyStats] = useState<Record<string, any>>({});
 
   // State to force refresh when marking attendance
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
-    setLocalAttendance(dataService.getAttendance(selectedDate, salonId));
+    const loadData = async () => {
+      const [allStaff, attRecords] = await Promise.all([
+        dataService.getStaff(salonId || undefined),
+        dataService.getAttendance(selectedDate, salonId)
+      ]);
+      setStaff(allStaff);
+      setLocalAttendance(attRecords);
+
+      // Load stats for each staff
+      const statsMap: Record<string, any> = {};
+      const d = new Date(selectedDate);
+      await Promise.all(allStaff.map(async (s) => {
+        statsMap[s.id] = await dataService.getMonthlyAttendanceStats(s.id, d.getMonth(), d.getFullYear());
+      }));
+      setMonthlyStats(statsMap);
+    };
+    loadData();
   }, [selectedDate, salonId, refreshTrigger]);
 
-  const handleStatusChange = (staffId: string, status: AttendanceStatus) => {
+  const handleStatusChange = async (staffId: string, status: AttendanceStatus) => {
     const existing = localAttendance.find(a => a.staffId === staffId);
-    const newRecord = {
+    const newRecord: AttendanceRecord = {
+      id: existing?.id || '',
       staffId,
       date: selectedDate,
       status,
       checkIn: existing?.checkIn || (status === AttendanceStatus.PRESENT ? "09:00" : undefined),
       checkOut: existing?.checkOut || (status === AttendanceStatus.PRESENT ? "18:00" : undefined)
     };
-    dataService.updateAttendance(newRecord);
+    await dataService.updateAttendance(newRecord);
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const handleTimeChange = (staffId: string, field: 'checkIn' | 'checkOut', value: string) => {
+  const handleTimeChange = async (staffId: string, field: 'checkIn' | 'checkOut', value: string) => {
     const existing = localAttendance.find(a => a.staffId === staffId);
     if (!existing) return;
 
     const updatedRecord = { ...existing, [field]: value };
-    dataService.updateAttendance(updatedRecord);
+    await dataService.updateAttendance(updatedRecord);
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -90,9 +109,7 @@ export const Attendance: React.FC = () => {
                 const record = localAttendance.find(a => a.staffId === member.id);
                 const isPresent = record?.status === AttendanceStatus.PRESENT;
                 
-                // Get Monthly Stats for calculation
-                const d = new Date(selectedDate);
-                const stats = dataService.getMonthlyAttendanceStats(member.id, d.getMonth(), d.getFullYear());
+                const stats = monthlyStats[member.id] || { present: 0, lopDays: 0, extraHours: 0 };
                 
                 return (
                   <tr key={member.id} className="hover:bg-slate-50/30 transition duration-300">
@@ -200,7 +217,7 @@ export const Attendance: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-indigo-600/10 rounded-full blur-3xl"></div>
+          <div className="absolute -right-8 -bottom-8 w-48 h-48 bg-indigo-600/10 rounded-full blur-3xl"></div>
         </div>
 
         <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl flex items-center justify-between">

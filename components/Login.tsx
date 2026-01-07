@@ -7,14 +7,24 @@ export const Login: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user = dataService.login(username, password);
-    if (user) {
-      onLogin();
-    } else {
-      setError('Invalid username or password');
+    setIsAuthenticating(true);
+    setError('');
+    
+    try {
+      const user = await dataService.login(username, password);
+      if (user) {
+        onLogin();
+      } else {
+        setError('Invalid credentials or database connection failed');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred during login');
+    } finally {
+      setIsAuthenticating(false);
     }
   };
 
@@ -26,11 +36,8 @@ export const Login: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             src={BRAND_LOGO_URL} 
             alt="Naturals Brand Logo" 
             className="w-full max-w-[240px] h-auto object-contain mx-auto mb-8"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://placehold.co/600x180/7C3AED/white?text=NATURALS";
-            }}
           />
-          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Salon Management System</p>
+          <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Cloud Salon Management</p>
         </div>
 
         <div className="bg-white p-10 rounded-3xl shadow-xl shadow-slate-200 border border-slate-100">
@@ -44,6 +51,7 @@ export const Login: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                 onChange={e => setUsername(e.target.value)}
                 placeholder="Enter username"
                 required
+                disabled={isAuthenticating}
               />
             </div>
             <div>
@@ -55,6 +63,7 @@ export const Login: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
+                disabled={isAuthenticating}
               />
             </div>
 
@@ -62,16 +71,22 @@ export const Login: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
 
             <button 
               type="submit"
-              className="w-full py-4 bg-[#7C3AED] text-white font-bold rounded-2xl shadow-xl shadow-purple-200 hover:bg-[#6D28D9] transition-all hover:-translate-y-1"
+              disabled={isAuthenticating}
+              className="w-full py-4 bg-[#7C3AED] text-white font-bold rounded-2xl shadow-xl shadow-purple-200 hover:bg-[#6D28D9] transition-all hover:-translate-y-1 disabled:opacity-50 flex justify-center items-center gap-2"
             >
-              Secure Access
+              {isAuthenticating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Verifying...
+                </>
+              ) : 'Secure Access'}
             </button>
           </form>
 
           <div className="mt-8 pt-8 border-t border-slate-50 text-center">
             <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
-              Demo credentials: <br/>
-              <span className="text-slate-900 font-bold">super / 123</span> | <span className="text-slate-900 font-bold">admin / 123</span>
+              Production Gateway <br/>
+              <span className="text-slate-900 font-bold">PostgreSQL via Supabase</span>
             </p>
           </div>
         </div>

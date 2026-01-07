@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Invoice, PaymentMode } from '../types';
+
+import React, { useState, useEffect } from 'react';
+import { Invoice, PaymentMode, Salon } from '../types';
 import { dataService } from '../services/mockData';
 import html2canvas from 'html2canvas';
 
@@ -23,8 +24,12 @@ export const formatWhatsAppMessage = (invoice: Invoice, salon: any) => {
 };
 
 export const InvoiceReceipt: React.FC<InvoiceReceiptProps> = ({ invoice, onClose, autoShare = false }) => {
-  const salon = dataService.getActiveSalon();
+  const [salon, setSalon] = useState<Salon | undefined>(undefined);
   const [shareStatus, setShareStatus] = useState<'idle' | 'capturing' | 'copied' | 'error'>('idle');
+
+  useEffect(() => {
+    dataService.getActiveSalon().then(setSalon);
+  }, []);
 
   const handleWhatsAppShare = async () => {
     if (shareStatus === 'capturing') return;
@@ -82,14 +87,14 @@ export const InvoiceReceipt: React.FC<InvoiceReceiptProps> = ({ invoice, onClose
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (autoShare) {
       const timer = setTimeout(() => {
         handleWhatsAppShare();
       }, 800);
       return () => clearTimeout(timer);
     }
-  }, [autoShare]);
+  }, [autoShare, salon]);
 
   const handlePrint = () => {
     window.print();

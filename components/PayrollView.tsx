@@ -1,53 +1,67 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
-import { Staff } from '../types';
+import { Staff, Salon } from '../types';
 
 export const PayrollView: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [isProcessing, setIsProcessing] = useState(false);
   const [payrollStatus, setPayrollStatus] = useState<'pending' | 'completed'>('pending');
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [payrollItems, setPayrollItems] = useState<any[]>([]);
+  // Fix: Move activeSalon to state to handle async fetch
+  const [activeSalon, setActiveSalon] = useState<Salon | undefined>(undefined);
 
   const salonId = dataService.getActiveSalonId();
-  const staffList = dataService.getStaff(salonId);
-  const activeSalon = dataService.getActiveSalon();
 
   const months = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
 
-  const calculatePayrollData = () => {
-    return staffList.map(s => {
-      const stats = dataService.getMonthlyAttendanceStats(s.id, selectedMonth, selectedYear);
-      const base = s.salary || 0;
-      const daily = base / 30;
-      const deductions = stats.effectiveDeductionDays * daily;
-      const otPay = stats.extraHours * (daily / 8);
-      
-      const actualSales = dataService.calculateStaffSales(s.id, selectedMonth, selectedYear);
-      const target = s.target || 0;
-      const incentive = s.role === 'Staff' ? Math.max(0, (actualSales - target) * 0.10) : 0;
-      
-      const netPayout = Math.max(0, base - deductions + otPay + incentive);
-      const targetAchievement = target > 0 ? (actualSales / target) * 100 : 0;
+  useEffect(() => {
+    const loadPayroll = async () => {
+      // Fix: Await active salon data along with staff list
+      const [allStaff, salon] = await Promise.all([
+        dataService.getStaff(salonId || undefined),
+        dataService.getActiveSalon()
+      ]);
+      setStaffList(allStaff);
+      setActiveSalon(salon);
 
-      return {
-        ...s,
-        stats,
-        actualSales,
-        target,
-        incentive,
-        otPay,
-        deductions,
-        netPayout,
-        targetAchievement
-      };
-    });
-  };
+      const items = await Promise.all(allStaff.map(async (s) => {
+        const stats = await dataService.getMonthlyAttendanceStats(s.id, selectedMonth, selectedYear);
+        const base = s.salary || 0;
+        const daily = base / 30;
+        const deductions = stats.effectiveDeductionDays * daily;
+        const otPay = stats.extraHours * (daily / 8);
+        
+        const actualSales = await dataService.calculateStaffSales(s.id, selectedMonth, selectedYear);
+        const target = s.target || 0;
+        const incentive = s.role === 'Staff' ? Math.max(0, (actualSales - target) * 0.10) : 0;
+        
+        const netPayout = Math.max(0, base - deductions + otPay + incentive);
+        const targetAchievement = target > 0 ? (actualSales / target) * 100 : 0;
 
-  const payrollItems = calculatePayrollData();
+        return {
+          ...s,
+          stats,
+          actualSales,
+          target,
+          incentive,
+          otPay,
+          deductions,
+          netPayout,
+          targetAchievement
+        };
+      }));
+      setPayrollItems(items);
+    };
+    loadPayroll();
+  }, [selectedMonth, selectedYear, salonId]);
+
   const totalLiability = payrollItems.reduce((acc, item) => acc + item.netPayout, 0);
   const totalIncentives = payrollItems.reduce((acc, item) => acc + item.incentive, 0);
   const totalOt = payrollItems.reduce((acc, item) => acc + item.otPay, 0);
@@ -64,6 +78,7 @@ export const PayrollView: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
+      // Fix: activeSalon is now state and its properties can be accessed directly
       link.download = `Payroll_${activeSalon?.name || 'Outlet'}_${months[selectedMonth]}_${selectedYear}.csv`;
       link.click();
       URL.revokeObjectURL(url);

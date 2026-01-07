@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from './common/Card';
 import { dataService } from '../services/mockData';
-import { PackageSubscription, SittingPackageTemplate, SittingPackageSubscription, Staff, Service } from '../types';
+import { PackageSubscription, SittingPackageTemplate, SittingPackageSubscription, Staff, Service, PackageTemplate, Salon } from '../types';
 import html2canvas from 'html2canvas';
 
 type PackageTab = 'value' | 'sitting';
@@ -33,7 +34,6 @@ export const PackagesView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<PackageTab>('value');
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showRedeemForm, setShowRedeemForm] = useState(false);
-  const [selectedSub, setSelectedSub] = useState<PackageSubscription | SittingPackageSubscription | null>(null);
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   
   const [redeemingValueSub, setRedeemingValueSub] = useState<PackageSubscription | null>(null);
@@ -59,31 +59,52 @@ export const PackagesView: React.FC = () => {
   const [sittingServiceValue, setSittingServiceValue] = useState<number>(0);
   const [sittingInitialStaffId, setSittingInitialStaffId] = useState('');
 
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [templates, setTemplates] = useState<PackageTemplate[]>([]);
+  const [sittingTemplates, setSittingTemplates] = useState<SittingPackageTemplate[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [activeSalon, setActiveSalon] = useState<Salon | undefined>(undefined);
+
   const salonId = dataService.getActiveSalonId();
-  const activeSalon = dataService.getActiveSalon();
-  const services = dataService.getServices();
-  const staffList = dataService.getStaff().filter(s => s.role === 'Staff');
-  const templates = dataService.getPackageTemplates();
-  const sittingTemplates = dataService.getSittingPackageTemplates();
 
   useEffect(() => {
-    setActiveSubscriptions(dataService.getPackageSubscriptions(salonId));
-    setActiveSittingSubs(dataService.getSittingPackageSubscriptions(salonId));
+    const loadRegistry = async () => {
+      const [subs, sits, staff, tmpls, sitTmpls, svcs, salon] = await Promise.all([
+        dataService.getPackageSubscriptions(salonId || undefined),
+        dataService.getSittingPackageSubscriptions(salonId || undefined),
+        dataService.getStaff(salonId || undefined),
+        dataService.getPackageTemplates(),
+        dataService.getSittingPackageTemplates(),
+        dataService.getServices(),
+        dataService.getActiveSalon()
+      ]);
+      setActiveSubscriptions(subs);
+      setActiveSittingSubs(sits);
+      setStaffList(staff.filter(s => s.role === 'Staff'));
+      setTemplates(tmpls);
+      setSittingTemplates(sitTmpls);
+      setServices(svcs);
+      setActiveSalon(salon);
+    };
+    loadRegistry();
   }, [salonId, showAssignForm, showRedeemForm, viewingReceipt]);
 
   useEffect(() => {
-    if (customerMobile.length >= 10) {
-      const customer = dataService.findCustomer(customerMobile);
-      if (customer) {
-        setCustomerName(customer.name);
-        setIsNewCustomer(false);
+    const lookupCustomer = async () => {
+      if (customerMobile.length >= 10) {
+        const customer = await dataService.findCustomer(customerMobile);
+        if (customer) {
+          setCustomerName(customer.name);
+          setIsNewCustomer(false);
+        } else {
+          setIsNewCustomer(true);
+          setCustomerName('');
+        }
       } else {
-        setIsNewCustomer(true);
-        setCustomerName('');
+        setIsNewCustomer(false);
       }
-    } else {
-      setIsNewCustomer(false);
-    }
+    };
+    lookupCustomer();
   }, [customerMobile]);
 
   const addItem = () => {
@@ -120,7 +141,7 @@ export const PackagesView: React.FC = () => {
     return { subtotal, gst, total };
   };
 
-  const handleValueAssignSubmit = (e: React.FormEvent) => {
+  const handleValueAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const template = templates.find(t => t.id === selectedTemplateId);
     if (!template || !customerMobile || !customerName) {
@@ -163,7 +184,7 @@ export const PackagesView: React.FC = () => {
 
     const newSub: PackageSubscription = {
       id: `VAL-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-      salonId,
+      salonId: salonId || 's1',
       customerMobile,
       customerName,
       templateId: template.id,
@@ -177,7 +198,7 @@ export const PackagesView: React.FC = () => {
       history: history
     };
 
-    dataService.addPackageSubscription(newSub);
+    await dataService.addPackageSubscription(newSub);
     
     setViewingReceipt({
       sub: newSub,
@@ -196,7 +217,7 @@ export const PackagesView: React.FC = () => {
     resetForm();
   };
 
-  const handleSittingAssignSubmit = (e: React.FormEvent) => {
+  const handleSittingAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const template = sittingTemplates.find(t => t.id === selectedSittingTemplateId);
     const service = services.find(s => s.id === selectedSittingServiceId);
@@ -231,7 +252,7 @@ export const PackagesView: React.FC = () => {
 
     const newSub: SittingPackageSubscription = {
       id: `STG-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-      salonId,
+      salonId: salonId || 's1',
       customerMobile,
       customerName,
       templateId: template.id,
@@ -247,7 +268,7 @@ export const PackagesView: React.FC = () => {
       history
     };
 
-    dataService.addSittingPackageSubscription(newSub);
+    await dataService.addSittingPackageSubscription(newSub);
     setViewingReceipt({
       sub: newSub,
       items: [{ serviceName: service.name, quantity: 1, price: sittingServiceValue }],
@@ -264,7 +285,7 @@ export const PackagesView: React.FC = () => {
     resetForm();
   };
 
-  const handleValueRedeemSubmit = (e: React.FormEvent) => {
+  const handleValueRedeemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!redeemingValueSub) return;
     const { total: totalToDeduct } = calculateItemsTotalComponents();
@@ -275,7 +296,7 @@ export const PackagesView: React.FC = () => {
     }
     const validItems = items.filter(i => i.serviceName);
     const historyItems = validItems.map(i => ({ serviceName: i.serviceName, quantity: i.quantity, price: i.price, staffId: i.staffId }));
-    const updatedSub = dataService.deductFromPackage(redeemingValueSub.customerMobile, totalToDeduct, `RED-${Date.now().toString().slice(-4)}`, validItems as any);
+    const updatedSub = await dataService.deductFromPackage(redeemingValueSub.customerMobile, totalToDeduct, `RED-${Date.now().toString().slice(-4)}`, validItems as any);
     
     if (updatedSub) {
       setViewingReceipt({
@@ -296,13 +317,13 @@ export const PackagesView: React.FC = () => {
     resetForm();
   };
 
-  const handleSittingRedeemSubmit = (e: React.FormEvent) => {
+  const handleSittingRedeemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!redeemingSittingSub || !sittingRedeemStaffId) return;
     const staff = staffList.find(s => s.id === sittingRedeemStaffId);
     if (!staff) return;
     
-    const updated = dataService.redeemSittingPackage(redeemingSittingSub.id, staff.id, staff.name);
+    const updated = await dataService.redeemSittingPackage(redeemingSittingSub.id, staff.id, staff.name);
     if (updated) {
       const template = sittingTemplates.find(t => t.id === updated.templateId);
       setViewingReceipt({
@@ -317,6 +338,7 @@ export const PackagesView: React.FC = () => {
         closingBalance: updated.remainingSittings,
         isSitting: true
       });
+      setShowRedeemForm(false);
       setRedeemingSittingSub(null);
       setSittingRedeemStaffId('');
     }
@@ -725,7 +747,7 @@ export const PackagesView: React.FC = () => {
 
            <div className="flex gap-4 mt-8">
               <button onClick={() => setViewingReceipt(null)} className="px-10 py-4 bg-white/10 text-white font-black uppercase text-xs rounded-2xl border border-white/20">Close</button>
-              <button onClick={handleShareReceipt} className="px-12 py-4 bg-emerald-500 text-white font-black uppercase text-xs rounded-2xl shadow-xl flex items-center gap-2">
+              <button onClick={handleShareReceipt} className="px-12 py-4 bg-emerald-50 text-white font-black uppercase text-xs rounded-2xl shadow-xl flex items-center gap-2">
                  <span>{shareStatus === 'capturing' ? '⌛' : '📲'}</span>
                  {shareStatus === 'capturing' ? 'Capturing...' : shareStatus === 'copied' ? 'Link Sent!' : 'Share to WhatsApp'}
               </button>

@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/mockData';
 import { Card } from './common/Card';
-import { User, UserRole } from '../types';
+import { User, UserRole, Salon } from '../types';
 
 export const AdminsView: React.FC = () => {
-  const [admins, setAdmins] = useState(dataService.getAdmins());
+  const [admins, setAdmins] = useState<User[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAdminId, setEditingAdminId] = useState<string | null>(null);
-  const salons = dataService.getSalons();
+  const [salons, setSalons] = useState<Salon[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -15,6 +16,19 @@ export const AdminsView: React.FC = () => {
     password: '',
     salonIds: [] as string[]
   });
+
+  const loadData = async () => {
+    const [adminList, salonList] = await Promise.all([
+      dataService.getAdmins(),
+      dataService.getSalons()
+    ]);
+    setAdmins(adminList);
+    setSalons(salonList);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const openAddModal = () => {
     setEditingAdminId(null);
@@ -42,7 +56,7 @@ export const AdminsView: React.FC = () => {
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingAdminId) {
       const updateData: Partial<User> = {
@@ -51,9 +65,10 @@ export const AdminsView: React.FC = () => {
         salonIds: formData.salonIds
       };
       if (formData.password) updateData.password = formData.password;
-      dataService.updateUser(editingAdminId, updateData);
+      await dataService.updateUser(editingAdminId, updateData);
     } else {
-      dataService.addAdmin({
+      await dataService.addAdmin({
+        id: '',
         name: formData.name,
         username: formData.username,
         password: formData.password || '123',
@@ -61,14 +76,14 @@ export const AdminsView: React.FC = () => {
         salonIds: formData.salonIds
       });
     }
-    setAdmins(dataService.getAdmins());
+    await loadData();
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to revoke access for this Administrator?')) {
-      dataService.deleteUser(id);
-      setAdmins(dataService.getAdmins());
+      await dataService.deleteUser(id);
+      await loadData();
     }
   };
 
