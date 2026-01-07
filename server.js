@@ -4,36 +4,58 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-const port = process.env.PORT || 3001;
+// Dokploy standard port
+const port = process.env.PORT || 3000;
+
+// Validate DATABASE_URL
+if (!process.env.DATABASE_URL) {
+  console.error('WARNING: DATABASE_URL is not defined in environment variables.');
+}
 
 // Connection Pool Configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   // Managed databases usually require SSL. 
-  // We disable it for localhost but enable for production.
   ssl: process.env.DATABASE_URL?.includes('localhost') || !process.env.DATABASE_URL 
     ? false 
     : { rejectUnauthorized: false }
 });
 
+// CRITICAL: Handle pool errors so the server doesn't crash if the DB disconnects
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle database client', err);
+});
+
 // Test the connection on startup
 pool.connect((err, client, release) => {
   if (err) {
-    return console.error('CRITICAL: Error acquiring client from database pool', err.stack);
+    console.error('DATABASE ERROR: Could not connect to PostgreSQL.', err.stack);
+    return;
   }
-  console.log('SUCCESS: Connected to Dokploy PostgreSQL database.');
+  console.log('DATABASE SUCCESS: Connected to PostgreSQL.');
   release();
 });
 
 app.use(cors());
 app.use(express.json());
 
-// --- Health Check ---
-app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+// --- API ROUTES ---
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date(),
+    database: pool ? 'connected' : 'missing'
+  });
+});
 
 // --- Auth ---
 app.post('/api/login', async (req, res) => {
@@ -174,6 +196,15 @@ app.post('/api/attendance', async (req, res) => {
   }
 });
 
+// --- SERVE FRONTEND (STATIC FILES) ---
+// Note: Vite build output goes to 'dist' folder
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// SPA Fallback: All non-API routes serve index.html from dist
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 app.listen(port, '0.0.0.0', () => {
-  console.log(`Backend service active at http://0.0.0.0:${port}`);
+  console.log(`SERVER SUCCESS: Unified Backend listening at http://0.0.0.0:${port}`);
 });

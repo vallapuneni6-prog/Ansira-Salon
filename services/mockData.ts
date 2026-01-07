@@ -4,10 +4,10 @@ import { Salon, Staff, Invoice, AttendanceRecord, User, UserRole, Service, Vouch
 export type { ReferralVoucher };
 
 // Use environment variable for API_URL if available
-// In Vite, defined variables are often replaced at build time via process.env
+// Changed default to 3000 to match standard Dokploy listener
 const API_URL = (typeof process !== 'undefined' && process.env.VITE_API_URL) 
   ? process.env.VITE_API_URL 
-  : 'http://localhost:3001/api';
+  : 'http://localhost:3000/api';
 
 class DataService {
   private currentUser: User | null = null;
